@@ -1,0 +1,7 @@
+{
+  "name": "bugbirdco/cypress-tabs",
+  "version": "1.0.0",
+  "description": "Switch between tabs/windows in Cypress",
+  "main": "tab_helpers.js",
+  "license": "MIT",
+}
