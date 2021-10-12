@@ -144,7 +144,7 @@ Cypress.Commands.add('openTab', (url, opts) => {
         // let windowName = 'popup' + performance.now();
         // let windowName = 'popup' + popupcounter;
         let windowName = 'popup' + opts.tab_name;
-        let promise = new Cypress.Promise(resolve => {
+        return new Cypress.Promise((resolve, reject) => {
             console.warn('>>>> openTab %s "%s %s"', url, opts.windowFeatures, indexNext, opts.tab_name);
             // https://developer.mozilla.org/en-US/docs/Web/API/Window/open
             popupcounter++;
@@ -153,25 +153,27 @@ Cypress.Commands.add('openTab', (url, opts) => {
             myTabs[indexNext].ATABNAME = myTabNames[indexNext]
             // letting page enough time to load and set "document.domain = localhost"
             // so we can access it
-            function checkReady(){
+            let wait, watchdog = null;
+            wait = setInterval(() => {
                 // thought checking document.domain would work but it never seems to update
                 // if(popup.document.domain !== "localhost"){
                 // checking body length is important for chrome tho, otherwise it will try and execute tests on about:blank
-                if(!popup.document.body || popup.document.body.innerHTML.length===0){
-                    setTimeout(()=>{
-                        checkReady()
-                    },32); // arbitrary delay
-                }else{
+                if(!!popup.document.body && popup.document.body.innerHTML.length > 0) {
+                    clearTimeout(watchdog)
+                    clearInterval(wait)
                     cy.state('document', popup.document)
                     cy.state('window', popup)
                     console.warn('>>>> after openTab')
                     debugTabState()
-                    resolve();
+                    resolve(popup);
                 }
-            }
-            checkReady();
+            }, 32) // arbitrary delay
+            watchdog = setTimeout(() => {
+                clearTimeout(watchdog)
+                clearInterval(wait)
+                reject()
+            }, opts.timeout || Cypress.config('defaultCommandTimeout'))
         })
-        return promise
     }
     active_tab_index = indexNext;
     if(myTabs[indexNext]){
