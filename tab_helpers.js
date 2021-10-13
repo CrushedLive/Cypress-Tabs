@@ -1,14 +1,14 @@
 let active_tab_index = 0;
 let myTabs = [];
-if(window.top.myTabs){
-    window.top.myTabs.forEach((tab,i)=>{
-        if(i===0 || !tab){
+if (window.top.myTabs) {
+    window.top.myTabs.forEach((tab, i) => {
+        if (i === 0 || !tab) {
             return;
         }
-        try{
+        try {
             tab.close()
             window.top.myTabs[i] = null
-        }catch(e){
+        } catch (e) {
 
         }
     })
@@ -20,19 +20,19 @@ window.top.myTabNames = myTabNames;
 // TODO: make this a nice collapsing table
 function debugTabState() {
     // comment this out to silence it
-    console.warn('-----debugTabState: active_tab:',active_tab_index + ' ' + myTabNames[active_tab_index])
+    console.warn('-----debugTabState: active_tab:', active_tab_index + ' ' + myTabNames[active_tab_index])
     myTabs.forEach((_win, k) => {
         console.warn(k, {
             active_tab_index,
             name: myTabNames[k],
             win: _win,
-            winATABNAME: _win? _win.ATABNAME : null,
-            app_name: _win? _win.APP_NAME: null // something i use for debugging
+            winATABNAME: _win ? _win.ATABNAME : null,
+            app_name: _win ? _win.APP_NAME : null // something i use for debugging
         })
     })
 }
 
-Cypress.Commands.add('debugTabHelper',()=>{
+Cypress.Commands.add('debugTabHelper', () => {
     debugTabState();
     return {
         active_tab_index,
@@ -52,9 +52,9 @@ Cypress.Commands.overwrite('visit', (originalFn, url, options) => {
     if (options && options.tab_name) {
         tab_name = options.tab_name
     }
-    if(tab_name){
+    if (tab_name) {
         myTabNames[0] = tab_name
-    }else{
+    } else {
         myTabNames[0] = 'root'
     }
     myTabs[0] = cy.state('window')
@@ -68,7 +68,7 @@ Cypress.Commands.overwrite('visit', (originalFn, url, options) => {
 // note: cy.reload win.location.reload, etc break our context aware popups
 // use this special visit function that maintains our context awareness when navigating on the currently active context
 Cypress.Commands.add('tabVisit', (url, tab_name) => {
-    if(typeof(tab_name)==="undefined"){
+    if (typeof (tab_name) === "undefined") {
         tab_name = myTabNames[myTabNames.indexOf(active_tab_index)]
     }
     let window_index = myTabNames.indexOf(tab_name)
@@ -79,34 +79,63 @@ Cypress.Commands.add('tabVisit', (url, tab_name) => {
     })
 
     if (window_index === 0) {
+        url = url[Object.keys(url)[0]]
         // for root window, reattach after iframe onload
         return new Cypress.Promise((resolve) => {
             active_tab_index = 0
-            let base_window =  myTabs[0] || cy.state('window')
+            let base_window = myTabs[0] || cy.state('window')
             let aut = base_window.top.document.getElementsByClassName('aut-iframe')[0]
             // console.warn('aut?', aut, originalWindow.document.getElementsByClassName('aut-iframe')[0])
             aut.onload = function () {
                 aut.onload = null;
-                active_tab_index = 0
+                active_tab_index = 0;
                 setTimeout(() => {
-                    active_tab_index = 0
-                    myTabs[0] = aut.contentWindow
-                    cy.state('document', aut.contentWindow.document)
-                    cy.state('window', aut.contentWindow)
-                    console.log('>>> after iframe loaded')
-                    debugTabState()
-                    resolve()
+                    active_tab_index = 0;
+                    myTabs[0] = aut.contentWindow;
+                    cy.state('document', aut.contentWindow.document);
+                    cy.state('window', aut.contentWindow);
+                    console.log('>>> after iframe loaded');
+                    debugTabState();
+                    resolve();
                 }, 500)
             }
             aut.contentWindow.location.href = url
             active_tab_index = 0
         })
     } else {
-        // for popupwindows, just call openTab
-        active_tab_index = window_index
-        return cy.openTab(url, {window_index, tab_name}).then(() => {
-            console.log('AFTER OPENTAB')
+        return new Cypress.Promise((resolve, reject) => {
+            // for popupwindows, just call openTab
             active_tab_index = window_index
+            if ('location' in url) {
+                let tab = myTabs[window_index],
+                    was = tab.location.href;
+                tab.location.href = url.location;
+
+                let wait, watchdog = null;
+                wait = setInterval(() => {
+                    try {
+                        if (tab.location.href !== was && tab.document.readyState === 'complete') {
+                            clearTimeout(watchdog);
+                            clearInterval(wait);
+                            resolve(tab);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }, 32); // arbitrary delay
+                watchdog = setTimeout(() => {
+                    clearTimeout(watchdog);
+                    clearInterval(wait);
+                    reject();
+                }, Cypress.config('defaultCommandTimeout'));
+            } else {
+                url = typeof url === 'string' ? url : url.open
+                cy.openTab(url, {window_index, tab_name}).then((tab) => {
+                    console.log('AFTER OPENTAB')
+                    active_tab_index = window_index
+                    resolve(tab)
+                })
+            }
         })
     }
 })
@@ -120,8 +149,8 @@ Cypress.Commands.add('openTab', (url, opts) => {
         tab_name: null,
         // https://developer.mozilla.org/en-US/docs/Web/API/Window/open
         windowFeatures: null
-    },opts)
-    if(!opts.tab_name){
+    }, opts)
+    if (!opts.tab_name) {
         throw new Error('please give your tab a name');
     }
     if (!myTabs[0]) {
@@ -135,12 +164,13 @@ Cypress.Commands.add('openTab', (url, opts) => {
     }
     let indexNext = myTabs.length
     let name_index = myTabNames.indexOf(opts.tab_name)
-    console.warn('openTab',{name_index,indexNext,active_tab_index})
+    console.warn('openTab', {name_index, indexNext, active_tab_index})
     if (name_index > -1) {
         indexNext = name_index
     }
     myTabNames[indexNext] = opts.tab_name;
-    function finalize(){
+
+    function finalize() {
         // let windowName = 'popup' + performance.now();
         // let windowName = 'popup' + popupcounter;
         let windowName = 'popup' + opts.tab_name;
@@ -158,14 +188,18 @@ Cypress.Commands.add('openTab', (url, opts) => {
                 // thought checking document.domain would work but it never seems to update
                 // if(popup.document.domain !== "localhost"){
                 // checking body length is important for chrome tho, otherwise it will try and execute tests on about:blank
-                if(!!popup.document.body && popup.document.body.innerHTML.length > 0) {
-                    clearTimeout(watchdog)
-                    clearInterval(wait)
-                    cy.state('document', popup.document)
-                    cy.state('window', popup)
-                    console.warn('>>>> after openTab')
-                    debugTabState()
-                    resolve(popup);
+                try {
+                    if (!!popup.document.body && popup.document.body.innerHTML.length > 0 && popup.document.readyState === 'complete') {
+                        clearTimeout(watchdog)
+                        clearInterval(wait)
+                        cy.state('document', popup.document)
+                        cy.state('window', popup)
+                        console.warn('>>>> after openTab')
+                        debugTabState()
+                        resolve(popup);
+                    }
+                } catch (e) {
+
                 }
             }, 32) // arbitrary delay
             watchdog = setTimeout(() => {
@@ -175,11 +209,12 @@ Cypress.Commands.add('openTab', (url, opts) => {
             }, opts.timeout || Cypress.config('defaultCommandTimeout'))
         })
     }
+
     active_tab_index = indexNext;
-    if(myTabs[indexNext]){
+    if (myTabs[indexNext]) {
         cy.closeTab(indexNext).then(finalize)
         // return finalize()
-    }else{
+    } else {
         return finalize()
     }
 })
@@ -187,10 +222,10 @@ Cypress.Commands.add('openTab', (url, opts) => {
 Cypress.Commands.add('switchToTab', (index_or_name) => {
     return new Cypress.Promise((resolve) => {
         let index = resolve_index_or_name_to_index(index_or_name)
-        console.warn('switchToTab',{index,index_or_name})
+        console.warn('switchToTab', {index, index_or_name})
         active_tab_index = index;
         let winNext = myTabs[active_tab_index]
-        if(!winNext){
+        if (!winNext) {
             throw new Error('tab missing')
         }
         cy.state('document', winNext.document)
@@ -223,10 +258,10 @@ Cypress.Commands.add('closeAllTabs', () => {
     cy.state('window', myTabs[0])
 })
 
-function resolve_index_or_name_to_index(index_or_name){
+function resolve_index_or_name_to_index(index_or_name) {
     let index = parseInt(index_or_name) >= 0 ? index_or_name : active_tab_index || 0
     let name_index = myTabNames.indexOf(index_or_name)
-    if(name_index>-1){
+    if (name_index > -1) {
         index = name_index
     }
     return index;
@@ -235,7 +270,7 @@ function resolve_index_or_name_to_index(index_or_name){
 /* pass an index to close a specific window, otherwise, pass nothing to delete the most recently open window in the stack */
 Cypress.Commands.add('closeTab', (index_or_name) => {
     let index = resolve_index_or_name_to_index(index_or_name)
-    console.warn('closeTab',{index_or_name,index})
+    console.warn('closeTab', {index_or_name, index})
     if (index === 0) {
         console.error('cant close root window')
         return //new Cypress.Promise.resolve(true);
@@ -246,7 +281,7 @@ Cypress.Commands.add('closeTab', (index_or_name) => {
     // NOTE we don't refocus any window here, that's up to you to call switchToTab() after close
     // unless there's no windows left, in which case we return you to window 0
     let filteredList = myTabs.filter(tab => tab)
-    if(filteredList.length === 1){
+    if (filteredList.length === 1) {
         cy.switchToTab(0)
     }
     // TODO if there are trailing squential trailing nulls, we could probably safely drop them from
